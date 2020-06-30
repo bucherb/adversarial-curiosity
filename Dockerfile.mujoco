@@ -1,0 +1,8 @@
+FROM chaneyk/pytorch:1.3.0-py3
+
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends \
+        libosmesa6-dev libgl1-mesa-glx libglfw3 patchelf
+
+RUN pip3 install --upgrade pip
+RUN pip3 --no-cache-dir install glfw gym lockfile

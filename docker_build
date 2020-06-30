@@ -1,0 +1,11 @@
+#!/bin/bash -e
+
+DOCKER_USER=daniilidislab472
+
+IMAGE=mujoco
+TAG=gym
+
+docker build -t $IMAGE-$TAG -f Dockerfile.$IMAGE .
+
+docker tag $IMAGE-$TAG $DOCKER_USER/$IMAGE:$TAG
+docker push $DOCKER_USER/$IMAGE:$TAG

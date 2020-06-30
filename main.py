@@ -3,6 +3,7 @@
 import numpy as np
 
 import torch
+import torch.utils
 
 import os
 import sys
@@ -28,6 +29,7 @@ from wrappers import BoundedActionsEnv, RecordedEnv, NoisyEnv
 from sacred import Experiment
 
 from logger import get_logger
+from torch.utils.tensorboard import SummaryWriter
 
 
 ex = Experiment()
@@ -75,18 +77,20 @@ def infra_config():
     disable_cuda = False                            # if true: do not ues cuda even though its available
     omp_num_threads = 1                             # for high CPU count machines
 
+    experiment_name = 'default'
+
     if not disable_cuda and torch.cuda.is_available():
         device = torch.device('cuda')
     else:
         device = torch.device('cpu')
 
-    self_dir = os.path.dirname(sys.argv[0])
-    dump_dir = os.path.join(self_dir,
-                            'logs',
-                            f'{datetime.now().strftime("%Y%m%d%H%M%S")}_{os.getpid()}')
-
+    log_dir = os.path.dirname(sys.argv[0])
+    dump_dir = os.path.join(log_dir,
+                             'logs',
+                             f'{experiment_name}')
     os.makedirs(dump_dir, exist_ok=True)
 
+    writer = SummaryWriter(dump_dir)
 
 # noinspection PyUnusedLocal
 @ex.config
@@ -261,7 +265,7 @@ def train_epoch(model, buffer, optimizer, batch_size, training_noise_stdev, grad
 
 
 @ex.capture
-def fit_model(buffer, n_epochs, step_num, verbosity, mode, _log, _run):
+def fit_model(buffer, n_epochs, step_num, verbosity, mode, writer, _log, _run):
     model = get_model()
     model.setup_normalizer(buffer.normalizer)
     optimizer = get_optimizer_factory()(model.parameters())
@@ -277,8 +281,10 @@ def fit_model(buffer, n_epochs, step_num, verbosity, mode, _log, _run):
     _log.info(f"step: {step_num}\t training done for {n_epochs} epochs, final loss: {np.round(tr_loss, 3)}")
 
     if mode == 'explore':
+        writer.add_scalar("explore_loss", tr_loss, step_num)
         _run.log_scalar("explore_loss", tr_loss, step_num)
     elif mode == 'exploit':
+        writer.add_scalar("exploit_loss", tr_loss, step_num)
         _run.log_scalar("exploit_loss", tr_loss, step_num)
 
     return model
@@ -339,7 +345,7 @@ def get_action(mdp, agent):
 
 
 @ex.capture
-def act(state, agent, mdp, buffer, model, measure, mode, exploration_mode,
+def act(state, agent, mdp, buffer, model, measure, mode, writer, exploration_mode,
         policy_actors, policy_warm_up_episodes, use_best_policy, policy_reactive_updates,
         policy_explore_horizon, policy_exploit_horizon,
         policy_explore_episodes, policy_exploit_episodes,
@@ -412,6 +418,15 @@ def act(state, agent, mdp, buffer, model, measure, mode, exploration_mode,
             _run.log_scalar("policy_improvement_first_last_delta", (last_return - first_return) / policy_horizon)
             _run.log_scalar("policy_improvement_second_last_delta", (last_return - ep_returns[1]) / policy_horizon)
             _run.log_scalar("policy_improvement_median_last_delta", (last_return - np.median(ep_returns)) / policy_horizon)
+            writer.add_scalar("policy_improvement_first_return", first_return / policy_horizon, policy_episodes)
+            writer.add_scalar("policy_improvement_second_return", ep_returns[1] / policy_horizon, policy_episodes)
+            writer.add_scalar("policy_improvement_last_return", last_return / policy_horizon, policy_episodes)
+            writer.add_scalar("policy_improvement_max_return", max(ep_returns) / policy_horizon, policy_episodes)
+            writer.add_scalar("policy_improvement_min_return", min(ep_returns) / policy_horizon, policy_episodes)
+            writer.add_scalar("policy_improvement_median_return", np.median(ep_returns) / policy_horizon, policy_episodes)
+            writer.add_scalar("policy_improvement_first_last_delta", (last_return - first_return) / policy_horizon, policy_episodes)
+            writer.add_scalar("policy_improvement_second_last_delta", (last_return - ep_returns[1]) / policy_horizon, policy_episodes)
+            writer.add_scalar("policy_improvement_median_last_delta", (last_return - np.median(ep_returns)) / policy_horizon, policy_episodes)
 
     return get_action(mdp, agent)
 
@@ -435,7 +450,7 @@ def transition_novelty(state, action, next_state, model, renyi_decay):
 
 
 @ex.capture
-def evaluate_task(env, model, buffer, task, render, filename, record, save_eval_agents, verbosity, _run, _log):
+def evaluate_task(env, model, buffer, task, render, filename, record, save_eval_agents, verbosity, writer, _run, _log):
     video_filename = f'{filename}.mp4'
     if record:
         state = env.reset(filename=video_filename)
@@ -448,7 +463,7 @@ def evaluate_task(env, model, buffer, task, render, filename, record, save_eval_
     done = False
     novelty = []
     while not done:
-        action, mdp, agent, _ = act(state=state, agent=agent, mdp=mdp, buffer=buffer, model=model, measure=task.measure, mode='exploit')
+        action, mdp, agent, _ = act(state=state, agent=agent, mdp=mdp, buffer=buffer, model=model, measure=task.measure, mode='exploit', writer=writer)
         next_state, _, done, info = env.step(action)
 
         n = transition_novelty(state, action, next_state, model=model)
@@ -478,16 +493,17 @@ def evaluate_task(env, model, buffer, task, render, filename, record, save_eval_
 
 
 @ex.capture
-def evaluate_tasks(buffer, step_num, n_eval_episodes, evaluation_model_epochs, render, dump_dir, ant_coverage, _log, _run):
+def evaluate_tasks(buffer, step_num, n_eval_episodes, evaluation_model_epochs, render, dump_dir, ant_coverage, writer, _log, _run):
     if ant_coverage:
         from envs.ant import rate_buffer
         coverage = rate_buffer(buffer=buffer)
+        writer.add_scalar("coverage", coverage, step_num)
         _run.log_scalar("coverage", coverage, step_num)
         _run.result = coverage
         _log.info(f"coverage: {coverage}")
         return coverage
 
-    model = fit_model(buffer=buffer, n_epochs=evaluation_model_epochs, step_num=step_num, mode='exploit')
+    model = fit_model(buffer=buffer, n_epochs=evaluation_model_epochs, step_num=step_num, mode='exploit', writer=writer)
     env = get_env()
 
     average_returns = []
@@ -496,7 +512,7 @@ def evaluate_tasks(buffer, step_num, n_eval_episodes, evaluation_model_epochs, r
         task_novelty = []
         for ep_idx in range(1, n_eval_episodes + 1):
             filename = f"{dump_dir}/evaluation_{step_num}_{task_name}_{ep_idx}"
-            ep_return, ep_novelty = evaluate_task(env=env, model=model, buffer=buffer, task=task, render=render, filename=filename)
+            ep_return, ep_novelty = evaluate_task(env=env, model=model, buffer=buffer, task=task, render=render, filename=filename, writer=writer)
 
             _log.info(f"task: {task_name}\tepisode: {ep_idx}\treward: {np.round(ep_return, 4)}")
             task_returns.append(ep_return)
@@ -504,17 +520,20 @@ def evaluate_tasks(buffer, step_num, n_eval_episodes, evaluation_model_epochs, r
 
         average_returns.append(task_returns)
         _log.info(f"task: {task_name}\taverage return: {np.round(np.mean(task_returns), 4)}")
+        writer.add_scalar(f"task_{task_name}_return", np.mean(task_returns), step_num)
+        writer.add_scalar(f"task_{task_name}_episode_novelty", np.mean(task_novelty), step_num)
         _run.log_scalar(f"task_{task_name}_return", np.mean(task_returns), step_num)
         _run.log_scalar(f"task_{task_name}_episode_novelty", np.mean(task_novelty), step_num)
 
     average_return = np.mean(average_returns)
+    writer.add_scalar("average_return", average_return, step_num)
     _run.log_scalar("average_return", average_return, step_num)
     _run.result = average_return
     return average_return
 
 
 @ex.capture
-def evaluate_utility(buffer, exploring_model_epochs, model_train_freq, n_eval_episodes, _log, _run):
+def evaluate_utility(buffer, exploring_model_epochs, model_train_freq, n_eval_episodes, writer, _log, _run):
     env = get_env()
 
     measure = get_utility_measure(utility_measure='renyi_div', utility_action_norm_penalty=0)
@@ -525,20 +544,20 @@ def evaluate_utility(buffer, exploring_model_epochs, model_train_freq, n_eval_ep
         ep_utility = 0
         ep_length = 0
 
-        model = fit_model(buffer=buffer, n_epochs=exploring_model_epochs, step_num=0, mode='explore')
+        model = fit_model(buffer=buffer, n_epochs=exploring_model_epochs, step_num=0, mode='explore', writer=writer)
         agent = None
         mdp = None
         done = False
 
         while not done:
-            action, mdp, agent, _ = act(state=state, agent=agent, mdp=mdp, buffer=buffer, model=model, measure=measure, mode='explore')
+            action, mdp, agent, _ = act(state=state, agent=agent, mdp=mdp, buffer=buffer, model=model, measure=measure, mode='explore', writer=writer)
             next_state, _, done, info = env.step(action)
             ep_length += 1
             ep_utility += transition_novelty(state, action, next_state, model=model)
             state = next_state
 
             if ep_length % model_train_freq == 0:
-                model = fit_model(buffer=buffer, n_epochs=exploring_model_epochs, step_num=ep_length, mode='explore')
+                model = fit_model(buffer=buffer, n_epochs=exploring_model_epochs, step_num=ep_length, mode='explore', writer=writer)
                 mdp = None
                 agent = None
 
@@ -551,7 +570,6 @@ def evaluate_utility(buffer, exploring_model_epochs, model_train_freq, n_eval_ep
     _log.info(f"average planning utility: {np.mean(achieved_utilities)}")
 
     return np.mean(achieved_utilities)
-
 
 @ex.capture
 def checkpoint(buffer, step_num, dump_dir, _run):
@@ -568,7 +586,7 @@ Main Functions
 
 @ex.capture
 def do_max_exploration(seed, action_noise_stdev, n_exploration_steps, n_warm_up_steps, model_train_freq, exploring_model_epochs,
-                       eval_freq, checkpoint_frequency, render, record, dump_dir, _config, _log, _run):
+                       eval_freq, checkpoint_frequency, render, record, dump_dir, writer, _config, _log, _run):
 
     env = get_env()
 
@@ -592,8 +610,9 @@ def do_max_exploration(seed, action_noise_stdev, n_exploration_steps, n_warm_up_
 
     for step_num in range(1, n_exploration_steps + 1):
         if step_num > n_warm_up_steps:
-            action, mdp, agent, policy_value = act(state=state, agent=agent, mdp=mdp, buffer=buffer, model=model, measure=exploration_measure, mode='explore')
-
+            action, mdp, agent, policy_value = act(state=state, agent=agent, mdp=mdp, buffer=buffer, model=model, measure=exploration_measure, mode='explore', writer=writer)
+            writer.add_scalar("action_norm", np.sum(np.square(action)), step_num)
+            writer.add_scalar("exploration_policy_value", policy_value, step_num)
             _run.log_scalar("action_norm", np.sum(np.square(action)), step_num)
             _run.log_scalar("exploration_policy_value", policy_value, step_num)
 
@@ -604,8 +623,8 @@ def do_max_exploration(seed, action_noise_stdev, n_exploration_steps, n_warm_up_
 
         next_state, reward, done, info = env.step(action)
         buffer.add(state, action, next_state)
-
         if step_num > n_warm_up_steps:
+            writer.add_scalar("experience_novelty", transition_novelty(state, action, next_state, model=model), step_num)
             _run.log_scalar("experience_novelty", transition_novelty(state, action, next_state, model=model), step_num)
 
         if render:
@@ -634,7 +653,7 @@ def do_max_exploration(seed, action_noise_stdev, n_exploration_steps, n_warm_up_
         time_to_update = ((step_num % model_train_freq) == 0)
         just_finished_warm_up = (step_num == n_warm_up_steps)
         if (train_at_end_of_episode and episode_done) or time_to_update or just_finished_warm_up:
-            model = fit_model(buffer=buffer, n_epochs=exploring_model_epochs, step_num=step_num, mode='explore')
+            model = fit_model(buffer=buffer, n_epochs=exploring_model_epochs, step_num=step_num, mode='explore', writer=writer)
 
             # discard old solution and MDP as models changed
             mdp = None
@@ -642,7 +661,7 @@ def do_max_exploration(seed, action_noise_stdev, n_exploration_steps, n_warm_up_
 
         time_to_evaluate = ((step_num % eval_freq) == 0)
         if time_to_evaluate or just_finished_warm_up:
-            average_performance = evaluate_tasks(buffer=buffer, step_num=step_num)
+            average_performance = evaluate_tasks(buffer=buffer, step_num=step_num, writer=writer)
             average_performances.append(average_performance)
 
         time_to_checkpoint = ((step_num % checkpoint_frequency) == 0)
@@ -680,7 +699,7 @@ def do_random_exploration(seed, normalize_data, n_exploration_steps, n_warm_up_s
         time_to_evaluate = ((step_num % eval_freq) == 0)
         just_finished_warm_up = (step_num == n_warm_up_steps)
         if time_to_evaluate or just_finished_warm_up:
-            average_performance = evaluate_tasks(buffer=buffer, step_num=step_num)
+            average_performance = evaluate_tasks(buffer=buffer, step_num=step_num, writer=writer)
             average_performances.append(average_performance)
 
     checkpoint(buffer=buffer, step_num=n_exploration_steps)
@@ -689,7 +708,7 @@ def do_random_exploration(seed, normalize_data, n_exploration_steps, n_warm_up_s
 
 
 @ex.capture
-def do_exploitation(seed, normalize_data, n_exploration_steps, buffer_file, ensemble_size, benchmark_utility, _log, _run):
+def do_exploitation(seed, normalize_data, n_exploration_steps, buffer_file, ensemble_size, benchmark_utility, writer, _log, _run):
     if len(buffer_file):
         with gzip.open(buffer_file, 'rb') as f:
             buffer = pickle.load(f)
@@ -715,9 +734,9 @@ def do_exploitation(seed, normalize_data, n_exploration_steps, buffer_file, ense
             state = next_state
 
     if benchmark_utility:
-        return evaluate_utility(buffer=buffer)
+        return evaluate_utility(buffer=buffer, writer=writer)
     else:
-        return evaluate_tasks(buffer=buffer, step_num=0)
+        return evaluate_tasks(buffer=buffer, step_num=0, writer=writer)
 
 
 @ex.automain
