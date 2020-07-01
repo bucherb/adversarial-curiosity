@@ -450,7 +450,7 @@ def transition_novelty(state, action, next_state, model, renyi_decay):
 
 
 @ex.capture
-def evaluate_task(env, model, buffer, task, render, filename, record, save_eval_agents, verbosity, writer, _run, _log):
+def evaluate_task(env, model, buffer, task, render, filename, writer, record, save_eval_agents, verbosity, _run, _log):
     video_filename = f'{filename}.mp4'
     if record:
         state = env.reset(filename=video_filename)
@@ -493,7 +493,7 @@ def evaluate_task(env, model, buffer, task, render, filename, record, save_eval_
 
 
 @ex.capture
-def evaluate_tasks(buffer, step_num, n_eval_episodes, evaluation_model_epochs, render, dump_dir, ant_coverage, writer, _log, _run):
+def evaluate_tasks(buffer, step_num, writer, n_eval_episodes, evaluation_model_epochs, render, dump_dir, ant_coverage, _log, _run):
     if ant_coverage:
         from envs.ant import rate_buffer
         coverage = rate_buffer(buffer=buffer)
@@ -675,7 +675,7 @@ def do_max_exploration(seed, action_noise_stdev, n_exploration_steps, n_warm_up_
 
 
 @ex.capture
-def do_random_exploration(seed, normalize_data, n_exploration_steps, n_warm_up_steps, eval_freq, _log):
+def do_random_exploration(seed, normalize_data, n_exploration_steps, n_warm_up_steps, eval_freq, writer, _log):
     env = get_env()
 
     buffer = get_buffer()
