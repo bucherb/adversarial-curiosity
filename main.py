@@ -15,8 +15,9 @@ from copy import deepcopy
 
 from buffer import Buffer
 from models import Model
+from discriminator import Discriminator
 from utilities import CompoundProbabilityStdevUtilityMeasure, JensenRenyiDivergenceUtilityMeasure, \
-    TrajectoryStdevUtilityMeasure, PredictionErrorUtilityMeasure
+    TrajectoryStdevUtilityMeasure, PredictionErrorUtilityMeasure, DiscriminatorUtilityMeasure
 from normalizer import TransitionNormalizer
 from imagination import Imagination
 
@@ -35,6 +36,7 @@ from torch.utils.tensorboard import SummaryWriter
 ex = Experiment()
 ex.logger = get_logger('max')
 
+# TODO don't use magic numbers for labels
 
 # noinspection PyUnusedLocal
 @ex.config
@@ -112,7 +114,9 @@ def model_training_config():
     weight_decay = 0                                # L2 weight decay on model parameters (good: 1e-5, default: 0)
     training_noise_stdev = 0                        # standard deviation of training noise applied on states, actions, next states
     grad_clip = 5                                   # gradient clipping to train model
-
+    m_loss_weight = 1.0                             # contribution of model loss when optimized jointly with discrimator (discrim utility option)
+    a_loss_weight = 0.01                            # contribution of adversarial loss when optimized jointly with model (discrim utility option)
+    threshold = 0.9                                 # threshold for discrimator to exclude too realistic examples from loss computation
 
 # noinspection PyUnusedLocal
 @ex.config
@@ -201,6 +205,13 @@ def get_env(env_name, env_noise_stdev, record):
 
     return env
 
+@ex.capture
+def get_discriminator(threshold):
+
+    discriminator = Discriminator(threshold=threshold)
+
+    return discriminator
+
 
 @ex.capture
 def get_model(d_state, d_action, ensemble_size, n_hidden, n_layers,
@@ -230,9 +241,8 @@ def get_optimizer_factory(learning_rate, weight_decay):
                                            lr=learning_rate,
                                            weight_decay=weight_decay)
 
-
 @ex.capture
-def get_utility_measure(utility_measure, utility_action_norm_penalty, renyi_decay):
+def get_utility_measure(utility_measure, utility_action_norm_penalty, renyi_decay, discrimator):
     if utility_measure == 'cp_stdev':
         return CompoundProbabilityStdevUtilityMeasure(action_norm_penalty=utility_action_norm_penalty)
     elif utility_measure == 'renyi_div':
@@ -241,6 +251,8 @@ def get_utility_measure(utility_measure, utility_action_norm_penalty, renyi_deca
         return TrajectoryStdevUtilityMeasure(action_norm_penalty=utility_action_norm_penalty)
     elif utility_measure == 'pred_err':
         return PredictionErrorUtilityMeasure(action_norm_penalty=utility_action_norm_penalty)
+    elif utility_measure == 'discrim':
+        return DiscriminatorUtilityMeasure(discrimator=discrimator, action_norm_penalty=utility_action_norm_penalty)
     else:
         raise Exception('invalid utility measure')
 
@@ -249,13 +261,32 @@ def get_utility_measure(utility_measure, utility_action_norm_penalty, renyi_deca
 Model Training
 """
 
-
 @ex.capture
-def train_epoch(model, buffer, optimizer, batch_size, training_noise_stdev, grad_clip):
+def train_epoch(model, buffer, optimizer, d_optimizer, discriminator, utility_measure, batch_size, training_noise_stdev, grad_clip):
     losses = []
+    d_losses = []
     for tr_states, tr_actions, tr_state_deltas in buffer.train_batches(batch_size=batch_size):
         optimizer.zero_grad()
         loss = model.loss(tr_states, tr_actions, tr_state_deltas, training_noise_stdev=training_noise_stdev)
+        if utility_measure == 'discrim':
+            with torch.no_grad():
+                # predict next states
+                next_state_means, next_state_vars = model.forward(tr_states, tr_actions)
+                predicted_next_states = next_state_means.to(model.device)
+                predicted_next_states = predicted_next_states.mean(dim=1)
+                predicted_next_states = model.normalizer.normalize_states(predicted_next_states)
+            # get next states using state deltas
+            next_states = tr_states + tr_state_deltas
+            # loss to train the discrimator
+            # loss for how well can the discriminator get the right values for real/fake?
+            d_loss = discriminator.d_loss(tr_states, tr_actions, next_states, predicted_next_states)
+            d_losses.append(d_loss.item())
+            d_loss.backward()
+            d_optimizer.step()
+            # incorporation of discriminator loss in the prediction model
+            # adversarial loss for how well can the model can fool the discriminator
+            a_loss = discriminator.loss(tr_states, tr_actions, predicted_next_states, 0.0)
+            loss = m_loss_weight * loss + a_loss_weight * a_loss
         losses.append(loss.item())
         loss.backward()
         torch.nn.utils.clip_grad_value_(model.parameters(), grad_clip)
@@ -263,18 +294,20 @@ def train_epoch(model, buffer, optimizer, batch_size, training_noise_stdev, grad
 
     return np.mean(losses)
 
-
 @ex.capture
 def fit_model(buffer, n_epochs, step_num, verbosity, mode, writer, _log, _run):
     model = get_model()
     model.setup_normalizer(buffer.normalizer)
     optimizer = get_optimizer_factory()(model.parameters())
+    # add another optimizer for training the discrimator
+    discriminator = get_discriminator()
+    d_optimizer = get_optimizer_factory()(discriminator.parameters())
 
     if verbosity:
         _log.info(f"step: {step_num}\t training")
 
     for epoch_i in range(1, n_epochs + 1):
-        tr_loss = train_epoch(model=model, buffer=buffer, optimizer=optimizer)
+        tr_loss = train_epoch(model=model, buffer=buffer, optimizer=optimizer, d_optimizer=d_optimizer, discriminator=discriminator)
         if verbosity >= 2:
             _log.info(f'epoch: {epoch_i:3d} training_loss: {tr_loss:.2f}')
 
@@ -435,7 +468,6 @@ def act(state, agent, mdp, buffer, model, measure, mode, writer, exploration_mod
 Evaluation and Check-pointing
 """
 
-
 @ex.capture
 def transition_novelty(state, action, next_state, model, renyi_decay):
     state = torch.from_numpy(state).float().unsqueeze(0).to(model.device)
@@ -536,7 +568,8 @@ def evaluate_tasks(buffer, step_num, n_eval_episodes, evaluation_model_epochs, r
 def evaluate_utility(buffer, exploring_model_epochs, model_train_freq, n_eval_episodes, writer, _log, _run):
     env = get_env()
 
-    measure = get_utility_measure(utility_measure='renyi_div', utility_action_norm_penalty=0)
+    discrimator = get_discriminator()
+    measure = get_utility_measure(utility_measure='renyi_div', utility_action_norm_penalty=0, discrimator=discrimator)
 
     achieved_utilities = []
     for ep_idx in range(1, n_eval_episodes + 1):
@@ -591,7 +624,8 @@ def do_max_exploration(seed, action_noise_stdev, n_exploration_steps, n_warm_up_
     env = get_env()
 
     buffer = get_buffer()
-    exploration_measure = get_utility_measure()
+    discrimator = get_discriminator()
+    exploration_measure = get_utility_measure(discrimator=discrimator)
 
     if _config['normalize_data']:
         normalizer = TransitionNormalizer()

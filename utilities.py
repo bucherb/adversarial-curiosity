@@ -166,3 +166,20 @@ class JensenRenyiDivergenceUtilityMeasure(UtilityMeasure):
         utility = entropy_mean - mean_entropy                                 # shape: (n_actors)
 
         return utility
+
+class DiscriminatorUtilityMeasure(UtilityMeasure):
+    def __init__(self, discrimator, action_norm_penalty=0):
+        super().__init__(action_norm_penalty=action_norm_penalty)
+        self.discriminator = discrimator
+
+    def compute_utility(self, states, actions, next_states, next_state_means, next_state_vars, model):
+
+        # process next state predictions
+        predicted_next_states = next_state_means.to(model.device)
+        predicted_next_states = predicted_next_states.mean(dim=1)
+        predicted_next_states = model.normalizer.normalize_states(predicted_next_states)
+
+        # compute adversarial loss
+        utility = self.discriminator.loss(states, actions, predicted_next_states, 0.0)
+
+        return utility
