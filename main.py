@@ -91,6 +91,7 @@ def infra_config():
     os.makedirs(dump_dir, exist_ok=True)
 
     writer = SummaryWriter(dump_dir)
+    restart_number = 0
 
 # noinspection PyUnusedLocal
 @ex.config
@@ -586,18 +587,25 @@ Main Functions
 
 @ex.capture
 def do_max_exploration(seed, action_noise_stdev, n_exploration_steps, n_warm_up_steps, model_train_freq, exploring_model_epochs,
-                       eval_freq, checkpoint_frequency, render, record, dump_dir, writer, _config, _log, _run):
-
+                       eval_freq, checkpoint_frequency, render, record, dump_dir, buffer_file, restart_number, writer, _config, _log, _run):
     env = get_env()
 
-    buffer = get_buffer()
+    if len(buffer_file):
+        with gzip.open(buffer_file, 'rb') as f:
+            buffer = pickle.load(f)
+            model = get_model()
+            model.setup_normalizer(buffer.normalizer)
+            optimizer = get_optimizer_factory()(model.parameters())
+    else:
+        buffer = get_buffer()
+        if _config['normalize_data']:
+            normalizer = TransitionNormalizer()
+            buffer.setup_normalizer(normalizer)
+
+        model = None
+
     exploration_measure = get_utility_measure()
 
-    if _config['normalize_data']:
-        normalizer = TransitionNormalizer()
-        buffer.setup_normalizer(normalizer)
-
-    model = None
     mdp = None
     agent = None
     average_performances = []
@@ -608,7 +616,7 @@ def do_max_exploration(seed, action_noise_stdev, n_exploration_steps, n_warm_up_
     else:
         state = env.reset()
 
-    for step_num in range(1, n_exploration_steps + 1):
+    for step_num in range(restart_number + 1, n_exploration_steps + 1):
         if step_num > n_warm_up_steps:
             action, mdp, agent, policy_value = act(state=state, agent=agent, mdp=mdp, buffer=buffer, model=model, measure=exploration_measure, mode='explore', writer=writer)
             writer.add_scalar("action_norm", np.sum(np.square(action)), step_num)
