@@ -15,11 +15,12 @@ from copy import deepcopy
 
 from buffer import Buffer
 from models import Model
-from discriminator import Discriminator
+from discriminators import ConvDiscriminator, NonconvDiscriminator
 from utilities import CompoundProbabilityStdevUtilityMeasure, JensenRenyiDivergenceUtilityMeasure, \
     TrajectoryStdevUtilityMeasure, PredictionErrorUtilityMeasure, DiscriminatorUtilityMeasure
 from normalizer import TransitionNormalizer
 from imagination import Imagination
+import pdb
 
 from sac import SAC
 
@@ -118,6 +119,7 @@ def model_training_config():
     m_loss_weight = 1.0                             # contribution of model loss when optimized jointly with discrimator (discrim utility option)
     a_loss_weight = 0.01                            # contribution of adversarial loss when optimized jointly with model (discrim utility option)
     threshold = 0.9                                 # threshold for discrimator to exclude too realistic examples from loss computation
+    buffer_file = ''
 
 # noinspection PyUnusedLocal
 @ex.config
@@ -180,7 +182,6 @@ def random_explore():
 @ex.named_config
 def exploit():
     exploitation = True
-    buffer_file = ''
     benchmark_utility = False
 
 
@@ -207,9 +208,9 @@ def get_env(env_name, env_noise_stdev, record):
     return env
 
 @ex.capture
-def get_discriminator(threshold):
+def get_discriminator(threshold, device):
 
-    discriminator = Discriminator(threshold=threshold)
+    discriminator = NonconvDiscriminator(threshold=threshold, device=device)
 
     return discriminator
 
@@ -263,7 +264,7 @@ Model Training
 """
 
 @ex.capture
-def train_epoch(model, buffer, optimizer, d_optimizer, discriminator, utility_measure, batch_size, training_noise_stdev, grad_clip):
+def train_epoch(model, buffer, optimizer, d_optimizer, discriminator, utility_measure, batch_size, training_noise_stdev, grad_clip, m_loss_weight, a_loss_weight):
     losses = []
     d_losses = []
     for tr_states, tr_actions, tr_state_deltas in buffer.train_batches(batch_size=batch_size):
@@ -274,7 +275,6 @@ def train_epoch(model, buffer, optimizer, d_optimizer, discriminator, utility_me
                 # predict next states
                 next_state_means, next_state_vars = model.forward(tr_states, tr_actions)
                 predicted_next_states = next_state_means.to(model.device)
-                predicted_next_states = predicted_next_states.mean(dim=1)
                 predicted_next_states = model.normalizer.normalize_states(predicted_next_states)
             # get next states using state deltas
             next_states = tr_states + tr_state_deltas
