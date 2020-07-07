@@ -12,7 +12,7 @@ class Discriminator(nn.Module):
     def __init__(self, threshold, device):
         super().__init__()
         self.threshold = threshold
-        self.criterion = nn.BCEWithLogitsLoss()
+        self.criterion = nn.BCEWithLogitsLoss(reduction='none')
         self.device = device
 
     def gan_loss(self, logits, labels):
@@ -21,9 +21,9 @@ class Discriminator(nn.Module):
         # put the data on the target compute device
         labels = labels.to(self.device)
         # compute loss
-        loss = torch.mean(self.criterion(logits, labels))
+        loss = self.criterion(logits, labels)
 
-        return loss
+        return torch.squeeze(loss.T)
 
     def forward(self, states, actions, next_states):
         raise NotImplementedError
@@ -53,7 +53,7 @@ class Discriminator(nn.Module):
         fraction_correct = (num_correct_gen + num_correct_true) / logits_true.shape[0]
 
         # threshold loss values
-        loss = loss if (fraction_correct > self.threshold) else torch.tensor(0.0, dtype=loss.dtype, requires_grad=True)
+        loss = loss if (fraction_correct > self.threshold) else torch.zeros(loss.shape, dtype=loss.dtype, requires_grad=True)
 
         return loss
 
@@ -93,9 +93,19 @@ class ConvDiscriminator(Discriminator):
         states = states.to(self.device)
         actions = actions.to(self.device)
         next_states = next_states.to(self.device)
-        # build trajectories and run discriminator
-        trajectories = torch.cat((actions, states, next_states), 2)
-        self.ndf = trajectories.shape[2]
+
+        # remove empty dimensions
+        # note this code will not work for batch_size = 1
+        states = torch.squeeze(states)
+        actions = torch.squeeze(actions)
+        next_states = torch.squeeze(next_states)
+
+        # build trajectories and run discriminator - shape (batch_size, in_features)
+        trajectories = torch.cat((actions, states, next_states), -1)
+        self.ndf = trajectories.shape[-1]
+
+        # input shape is (batch_size, in_features)
+        # output shape is (batch_size, 1)
         logits = self.main(trajectories)
         return logits
 
@@ -129,10 +139,18 @@ class NonconvDiscriminator(Discriminator):
         states = states.to(self.device)
         actions = actions.to(self.device)
         next_states = next_states.to(self.device)
-        # build trajectories and run discriminator - shape (1, batch_size, in_features)
-        trajectories = torch.cat((actions, states, next_states), 2)
-        self.in_features = trajectories.shape[2]
+
+        # remove empty dimensions
+        # note this code will not work for batch_size = 1
+        states = torch.squeeze(states)
+        actions = torch.squeeze(actions)
+        next_states = torch.squeeze(next_states)
+
+        # build trajectories and run discriminator - shape (batch_size, in_features)
+        trajectories = torch.cat((actions, states, next_states), -1)
+        self.in_features = trajectories.shape[-1]
+
         # input shape is (batch_size, in_features)
         # output shape is (batch_size, 1)
-        logits = self.main(trajectories[0])
+        logits = self.main(trajectories)
         return logits

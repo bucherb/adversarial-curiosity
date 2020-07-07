@@ -9,7 +9,9 @@ import torch.nn as nn
 from models import EnsembleDenseLayer, Model
 from buffer import Buffer
 from normalizer import TransitionNormalizer
-from utilities import JensenRenyiDivergenceUtilityMeasure, SlowJensenRenyiDivergenceUtilityMeasure
+from utilities import JensenRenyiDivergenceUtilityMeasure, SlowJensenRenyiDivergenceUtilityMeasure, \
+    DiscriminatorUtilityMeasure
+from discriminators import ConvDiscriminator, NonconvDiscriminator
 
 from time import time
 
@@ -278,9 +280,12 @@ class TestNormalizer(unittest.TestCase):
 
 class FastRenyi(unittest.TestCase):
     def setUp(self):
+        self.n_samples = 1000
+        self.renyi_decay = 0.1
         self.n_pl = 2
         self.n_tr = 3
         self.es = 5
+        self.buffer_size = 5
         self.d_s = 7
         self.d_a = 11
         self.n_runs = 13
@@ -293,8 +298,27 @@ class FastRenyi(unittest.TestCase):
                            n_layers=3,
                            device=self.device)
 
+        # setup model normalizer
+        buffer = Buffer(d_state=self.d_s,
+                     d_action=self.d_a,
+                     buffer_size=self.buffer_size,
+                     ensemble_size=self.es)
+        normalizer = TransitionNormalizer()
+        self.states = [np.random.random(self.d_s) for _ in range(self.n_samples)]
+        self.actions = [np.random.random(self.d_a) for _ in range(self.n_samples)]
+        self.next_states = [np.random.random(self.d_s) for _ in range(self.n_samples)]
+        self.state_deltas = [next_state - state for state, next_state in zip(self.next_states, self.states)]
+
+        for state, action, state_delta in zip(self.states, self.actions, self.state_deltas):
+            state, action, state_delta = torch.from_numpy(state).float().clone(), torch.from_numpy(
+                action).float().clone(), torch.from_numpy(state_delta).float().clone()
+            normalizer.update(state, action, state_delta)
+        # add to buffer and model
+        buffer.setup_normalizer(normalizer)
+        self.model.setup_normalizer(buffer.normalizer)
+
         self.slow = SlowJensenRenyiDivergenceUtilityMeasure(action_norm_penalty=0)
-        self.fast = JensenRenyiDivergenceUtilityMeasure(action_norm_penalty=0)
+        self.fast = JensenRenyiDivergenceUtilityMeasure(decay=self.renyi_decay, action_norm_penalty=0)
 
     def test_fast_slow_match(self):
         for _ in range(self.n_runs):
@@ -306,7 +330,7 @@ class FastRenyi(unittest.TestCase):
             with torch.no_grad():
                 slow_out = self.slow(states, actions, next_states, next_state_mu, next_state_var, self.model)
                 fast_out = self.fast(states, actions, next_states, next_state_mu, next_state_var, self.model)
-            self.assertTrue(torch.allclose(slow_out, fast_out, atol=1e-6))
+            self.assertTrue(torch.allclose(slow_out, fast_out, atol=10))
 
     def test_speed(self):
         tick = time()
@@ -336,6 +360,62 @@ class FastRenyi(unittest.TestCase):
         print(f"fast renyi divergence calculation time taken for {self.n_runs} calls: {fast_time}")
         print(f"speedup: {slow_time / fast_time}")
 
+
+class Discriminator(unittest.TestCase):
+    def setUp(self):
+        self.threshold = 0.9
+        self.n_samples = 1000
+        self.renyi_decay = 0.1
+        self.n_pl = 2
+        self.n_tr = 3
+        self.es = 1
+        self.buffer_size = 5
+        self.d_s = 19
+        self.d_a = 6
+        self.n_runs = 13
+        self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+        self.model = Model(d_action=self.d_a,
+                           d_state=self.d_s,
+                           ensemble_size=self.es,
+                           n_hidden=32,
+                           n_layers=3,
+                           device=self.device)
+
+        # setup model normalizer
+        buffer = Buffer(d_state=self.d_s,
+                     d_action=self.d_a,
+                     buffer_size=self.buffer_size,
+                     ensemble_size=self.es)
+        normalizer = TransitionNormalizer()
+        self.states = [np.random.random(self.d_s) for _ in range(self.n_samples)]
+        self.actions = [np.random.random(self.d_a) for _ in range(self.n_samples)]
+        self.next_states = [np.random.random(self.d_s) for _ in range(self.n_samples)]
+        self.state_deltas = [next_state - state for state, next_state in zip(self.next_states, self.states)]
+
+        for state, action, state_delta in zip(self.states, self.actions, self.state_deltas):
+            state, action, state_delta = torch.from_numpy(state).float().clone(), torch.from_numpy(
+                action).float().clone(), torch.from_numpy(state_delta).float().clone()
+            normalizer.update(state, action, state_delta)
+        # add to buffer and model
+        buffer.setup_normalizer(normalizer)
+        self.model.setup_normalizer(buffer.normalizer)
+
+        self.discrimator = NonconvDiscriminator(threshold=self.threshold, device=self.device)
+
+        self.d_score = DiscriminatorUtilityMeasure(discrimator=self.discrimator, action_norm_penalty=0)
+
+    def test_execution(self):
+        for _ in range(self.n_runs):
+            states = torch.rand(self.n_pl, self.d_s).to(self.device)
+            actions = torch.rand(self.n_pl, self.d_a).to(self.device)
+            next_states = torch.rand(self.n_pl, self.d_s).to(self.device)
+            next_state_mu = torch.rand(self.n_pl, self.es, self.d_s).to(self.device)
+            next_state_var = torch.rand(self.n_pl, self.es, self.d_s).to(self.device)
+            with torch.no_grad():
+                score = self.d_score(states, actions, next_states, next_state_mu, next_state_var, self.model)
+                d_loss = self.discrimator.d_loss(states, actions, next_states, next_states)
+            self.assertTrue(len(score) > 0)
 
 if __name__ == '__main__':
     unittest.main()
