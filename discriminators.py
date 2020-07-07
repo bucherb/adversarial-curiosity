@@ -28,12 +28,18 @@ class Discriminator(nn.Module):
     def forward(self, states, actions, next_states):
         raise NotImplementedError
 
-    def loss(self, states, actions, predicted_next_states, labels):
+    def utility(self, states, actions, predicted_next_states, labels):
         # get logits from forward pass of model
         logits = self.forward(states, actions, predicted_next_states)
         # check if the answers were right
         loss = self.gan_loss(logits, labels)
+        # make sure we always return as tensor with dim >= 1
+        loss = torch.unsqueeze(loss, dim=0) if loss.dim() == 0 else loss
 
+        return loss
+
+    def loss(self, states, actions, predicted_next_states, labels):
+        loss = torch.mean(self.utility(states, actions, predicted_next_states, labels))
         return loss
 
     def d_loss(self, states, actions, next_states, predicted_next_states):
@@ -42,8 +48,8 @@ class Discriminator(nn.Module):
         logits_gen = self.forward(states, actions, predicted_next_states)
 
         # compute model loss for generated and true trajectories
-        loss_on_gen = self.gan_loss(logits_gen, 1.0)
-        loss_on_true = self.gan_loss(logits_true, 0.0)
+        loss_on_gen = torch.mean(self.gan_loss(logits_gen, 1.0))
+        loss_on_true = torch.mean(self.gan_loss(logits_true, 0.0))
 
         loss = loss_on_gen + loss_on_true
 
@@ -53,7 +59,7 @@ class Discriminator(nn.Module):
         fraction_correct = (num_correct_gen + num_correct_true) / logits_true.shape[0]
 
         # threshold loss values
-        loss = loss if (fraction_correct > self.threshold) else torch.zeros(loss.shape, dtype=loss.dtype, requires_grad=True)
+        loss = loss if (fraction_correct > self.threshold) else torch.tensor([0.0], dtype=loss.dtype, requires_grad=True)
 
         return loss
 
@@ -122,11 +128,9 @@ class NonconvDiscriminator(Discriminator):
             nn.LeakyReLU(0.2, inplace=True),
             # 2nd layer
             nn.Linear(30, 20, bias=False),
-            nn.BatchNorm1d(20),
             nn.LeakyReLU(0.2, inplace=True),
             # 3rd layer
             nn.Linear(20, 10, bias=False),
-            nn.BatchNorm1d(10),
             nn.LeakyReLU(0.2, inplace=True),
             # 4th layer
             nn.Linear(10, 1, bias=False),
@@ -141,10 +145,14 @@ class NonconvDiscriminator(Discriminator):
         next_states = next_states.to(self.device)
 
         # remove empty dimensions
-        # note this code will not work for batch_size = 1
         states = torch.squeeze(states)
         actions = torch.squeeze(actions)
         next_states = torch.squeeze(next_states)
+
+        # add back a dimension if batch size was 1
+        states = torch.unsqueeze(states, dim=0) if len(states.shape) == 1 else states
+        actions = torch.unsqueeze(actions, dim=0) if len(actions.shape) == 1 else actions
+        next_states = torch.unsqueeze(next_states, dim=0) if len(next_states.shape) == 1 else next_states
 
         # build trajectories and run discriminator - shape (batch_size, in_features)
         trajectories = torch.cat((actions, states, next_states), -1)

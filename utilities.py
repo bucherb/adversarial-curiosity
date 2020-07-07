@@ -179,6 +179,6 @@ class DiscriminatorUtilityMeasure(UtilityMeasure):
         predicted_next_states = model.normalizer.normalize_states(predicted_next_states)
 
         # compute adversarial loss
-        utility = self.discriminator.loss(states, actions, predicted_next_states, 0.0)
+        utility = self.discriminator.utility(states, actions, predicted_next_states, 0.0)
 
         return utility

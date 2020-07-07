@@ -361,12 +361,12 @@ class FastRenyi(unittest.TestCase):
         print(f"speedup: {slow_time / fast_time}")
 
 
-class Discriminator(unittest.TestCase):
+class DiscriminatorTest(unittest.TestCase):
     def setUp(self):
         self.threshold = 0.9
         self.n_samples = 1000
         self.renyi_decay = 0.1
-        self.n_pl = 2
+        self.n_pl = 1
         self.n_tr = 3
         self.es = 1
         self.buffer_size = 5
@@ -405,7 +405,20 @@ class Discriminator(unittest.TestCase):
 
         self.d_score = DiscriminatorUtilityMeasure(discrimator=self.discrimator, action_norm_penalty=0)
 
-    def test_execution(self):
+    def test_batchsize1(self):
+        for _ in range(self.n_runs):
+            states = torch.rand(self.n_pl, self.d_s).to(self.device)
+            actions = torch.rand(self.n_pl, self.d_a).to(self.device)
+            next_states = torch.rand(self.n_pl, self.d_s).to(self.device)
+            next_state_mu = torch.rand(self.n_pl, self.es, self.d_s).to(self.device)
+            next_state_var = torch.rand(self.n_pl, self.es, self.d_s).to(self.device)
+            with torch.no_grad():
+                score = self.d_score(states, actions, next_states, next_state_mu, next_state_var, self.model)
+                d_loss = self.discrimator.d_loss(states, actions, next_states, next_states)
+            self.assertTrue(len(score) > 0)
+
+    def test_batchsize2(self):
+        self.n_pl = 2
         for _ in range(self.n_runs):
             states = torch.rand(self.n_pl, self.d_s).to(self.device)
             actions = torch.rand(self.n_pl, self.d_a).to(self.device)
