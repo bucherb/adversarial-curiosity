@@ -7,6 +7,19 @@ import pdb
 
 from torch.distributions import Normal
 
+# TODO
+# tune m_loss_weight and a_loss_weight
+# run trials to get varying random seeds
+# double check signs on all loss values and utilities
+# threshold for loss suppression in discrimator - try not using and also varying values
+# try batch /instance norms
+# make prediction model bigger
+# action norms are much smaller for discrim than max - fix this
+
+# check model is not using variance somewhere that causes problems for ensemble size 1
+# double check why novelty measures are not zero or erroring for discriminator
+# log utility from discrimator and fraction_correct for discrimator
+
 class Discriminator(nn.Module):
 
     def __init__(self, threshold, device):
@@ -39,7 +52,7 @@ class Discriminator(nn.Module):
         return loss
 
     def loss(self, states, actions, predicted_next_states, labels):
-        loss = torch.mean(self.utility(states, actions, predicted_next_states, labels))
+        loss = -1 * torch.mean(self.utility(states, actions, predicted_next_states, labels))
         return loss
 
     def d_loss(self, states, actions, next_states, predicted_next_states):
@@ -124,16 +137,16 @@ class NonconvDiscriminator(Discriminator):
         self.in_features = 44
         self.main = nn.Sequential(
             # 1st layer
-            nn.Linear(self.in_features, 30, bias=False),
+            nn.Linear(self.in_features, self.in_features * 2),
             nn.LeakyReLU(0.2, inplace=True),
             # 2nd layer
-            nn.Linear(30, 20, bias=False),
+            nn.Linear(self.in_features * 2, 64),
             nn.LeakyReLU(0.2, inplace=True),
             # 3rd layer
-            nn.Linear(20, 10, bias=False),
+            nn.Linear(64, 32),
             nn.LeakyReLU(0.2, inplace=True),
             # 4th layer
-            nn.Linear(10, 1, bias=False),
+            nn.Linear(32, 1),
             nn.Sigmoid()
         )
         self.to(self.device)

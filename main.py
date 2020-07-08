@@ -264,9 +264,12 @@ Model Training
 """
 
 @ex.capture
-def train_epoch(model, buffer, optimizer, d_optimizer, discriminator, utility_measure, batch_size, training_noise_stdev, grad_clip, m_loss_weight, a_loss_weight):
+def train_epoch(model, buffer, optimizer, d_optimizer, discriminator, utility_measure, batch_size, training_noise_stdev,
+                grad_clip, m_loss_weight, a_loss_weight):
     losses = []
     d_losses = []
+    m_losses = []
+    a_losses = []
     for tr_states, tr_actions, tr_state_deltas in buffer.train_batches(batch_size=batch_size):
         optimizer.zero_grad()
         loss = model.loss(tr_states, tr_actions, tr_state_deltas, training_noise_stdev=training_noise_stdev)
@@ -287,13 +290,16 @@ def train_epoch(model, buffer, optimizer, d_optimizer, discriminator, utility_me
             # incorporation of discriminator loss in the prediction model
             # adversarial loss for how well can the model can fool the discriminator
             a_loss = discriminator.loss(tr_states, tr_actions, predicted_next_states, 0.0)
+            # compute weighted total loss
+            m_losses.append(loss.item())
+            a_losses.append(a_loss.item())
             loss = m_loss_weight * loss + a_loss_weight * a_loss
         losses.append(loss.item())
         loss.backward()
         torch.nn.utils.clip_grad_value_(model.parameters(), grad_clip)
         optimizer.step()
 
-    return np.mean(losses)
+    return np.mean(losses), np.mean(d_losses), np.mean(m_losses), np.mean(a_losses)
 
 @ex.capture
 def fit_model(buffer, n_epochs, step_num, verbosity, mode, writer, _log, _run):
@@ -308,11 +314,15 @@ def fit_model(buffer, n_epochs, step_num, verbosity, mode, writer, _log, _run):
         _log.info(f"step: {step_num}\t training")
 
     for epoch_i in range(1, n_epochs + 1):
-        tr_loss = train_epoch(model=model, buffer=buffer, optimizer=optimizer, d_optimizer=d_optimizer, discriminator=discriminator)
+        tr_loss, d_loss, m_loss, a_loss = train_epoch(model=model, buffer=buffer, optimizer=optimizer, d_optimizer=d_optimizer, discriminator=discriminator)
         if verbosity >= 2:
             _log.info(f'epoch: {epoch_i:3d} training_loss: {tr_loss:.2f}')
 
     _log.info(f"step: {step_num}\t training done for {n_epochs} epochs, final loss: {np.round(tr_loss, 3)}")
+
+    writer.add_scalar("prediction loss", m_loss, step_num)
+    writer.add_scalar("adversarial loss", a_loss, step_num)
+    writer.add_scalar("discrimator loss", d_loss, step_num)
 
     if mode == 'explore':
         writer.add_scalar("explore_loss", tr_loss, step_num)
@@ -452,15 +462,6 @@ def act(state, agent, mdp, buffer, model, measure, mode, writer, exploration_mod
             _run.log_scalar("policy_improvement_first_last_delta", (last_return - first_return) / policy_horizon)
             _run.log_scalar("policy_improvement_second_last_delta", (last_return - ep_returns[1]) / policy_horizon)
             _run.log_scalar("policy_improvement_median_last_delta", (last_return - np.median(ep_returns)) / policy_horizon)
-            writer.add_scalar("policy_improvement_first_return", first_return / policy_horizon, policy_episodes)
-            writer.add_scalar("policy_improvement_second_return", ep_returns[1] / policy_horizon, policy_episodes)
-            writer.add_scalar("policy_improvement_last_return", last_return / policy_horizon, policy_episodes)
-            writer.add_scalar("policy_improvement_max_return", max(ep_returns) / policy_horizon, policy_episodes)
-            writer.add_scalar("policy_improvement_min_return", min(ep_returns) / policy_horizon, policy_episodes)
-            writer.add_scalar("policy_improvement_median_return", np.median(ep_returns) / policy_horizon, policy_episodes)
-            writer.add_scalar("policy_improvement_first_last_delta", (last_return - first_return) / policy_horizon, policy_episodes)
-            writer.add_scalar("policy_improvement_second_last_delta", (last_return - ep_returns[1]) / policy_horizon, policy_episodes)
-            writer.add_scalar("policy_improvement_median_last_delta", (last_return - np.median(ep_returns)) / policy_horizon, policy_episodes)
 
     return get_action(mdp, agent)
 
