@@ -159,6 +159,10 @@ class NonconvDiscriminator(Discriminator):
         actions = actions.to(self.device)
         next_states = next_states.to(self.device)
 
+        # for predicted next states (not true next states) take mean over
+        # the ensemble of models
+        next_states = next_states.mean(dim=1) if len(next_states.shape) == 3 else next_states
+
         # remove empty dimensions
         states = torch.squeeze(states)
         actions = torch.squeeze(actions)

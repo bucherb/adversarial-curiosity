@@ -373,6 +373,9 @@ class DiscriminatorTest(unittest.TestCase):
         self.d_s = 19
         self.d_a = 6
         self.n_runs = 13
+        self.constant_test = False
+        self.constant_return = 0.0
+        self.utility_scale = 1.0
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
         self.model = Model(d_action=self.d_a,
@@ -403,7 +406,8 @@ class DiscriminatorTest(unittest.TestCase):
 
         self.discrimator = NonconvDiscriminator(threshold=self.threshold, device=self.device)
 
-        self.d_score = DiscriminatorUtilityMeasure(discrimator=self.discrimator, action_norm_penalty=0)
+        self.d_score = DiscriminatorUtilityMeasure(discrimator=self.discrimator, constant_test=self.constant_test,
+            constant_return=self.constant_return, utility_scale=self.utility_scale, action_norm_penalty=0)
 
     def test_batchsize1(self):
         for _ in range(self.n_runs):
@@ -418,6 +422,20 @@ class DiscriminatorTest(unittest.TestCase):
             self.assertTrue(len(score) > 0)
 
     def test_batchsize2(self):
+        self.n_pl = 2
+        for _ in range(self.n_runs):
+            states = torch.rand(self.n_pl, self.d_s).to(self.device)
+            actions = torch.rand(self.n_pl, self.d_a).to(self.device)
+            next_states = torch.rand(self.n_pl, self.d_s).to(self.device)
+            next_state_mu = torch.rand(self.n_pl, self.es, self.d_s).to(self.device)
+            next_state_var = torch.rand(self.n_pl, self.es, self.d_s).to(self.device)
+            with torch.no_grad():
+                score = self.d_score(states, actions, next_states, next_state_mu, next_state_var, self.model)
+                d_loss = self.discrimator.d_loss(states, actions, next_states, next_states)
+            self.assertTrue(len(score) > 0)
+
+    def test_ensemblesize5(self):
+        self.es = 2
         self.n_pl = 2
         for _ in range(self.n_runs):
             states = torch.rand(self.n_pl, self.d_s).to(self.device)
