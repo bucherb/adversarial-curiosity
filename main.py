@@ -165,6 +165,9 @@ def exploration():
     utility_action_norm_penalty = 0                 # regularize to actions even when exploring
     action_noise_stdev = 0                          # noise added to actions
 
+    constant_test = False                           # turn on a baseline test to return constant utility values
+    constant_return = 0.0                           # constant to return in constant test
+    utility_scale = 1.0                             # scale returned utility values
 
 # noinspection PyUnusedLocal
 @ex.named_config
@@ -244,7 +247,8 @@ def get_optimizer_factory(learning_rate, weight_decay):
                                            weight_decay=weight_decay)
 
 @ex.capture
-def get_utility_measure(utility_measure, utility_action_norm_penalty, renyi_decay, discrimator):
+def get_utility_measure(utility_measure, utility_action_norm_penalty, renyi_decay,
+                        discrimator, constant_test, constant_return, utility_scale):
     if utility_measure == 'cp_stdev':
         return CompoundProbabilityStdevUtilityMeasure(action_norm_penalty=utility_action_norm_penalty)
     elif utility_measure == 'renyi_div':
@@ -254,7 +258,8 @@ def get_utility_measure(utility_measure, utility_action_norm_penalty, renyi_deca
     elif utility_measure == 'pred_err':
         return PredictionErrorUtilityMeasure(action_norm_penalty=utility_action_norm_penalty)
     elif utility_measure == 'discrim':
-        return DiscriminatorUtilityMeasure(discrimator=discrimator, action_norm_penalty=utility_action_norm_penalty)
+        return DiscriminatorUtilityMeasure(discrimator=discrimator, constant_test=constant_test,
+            constant_return=constant_return, utility_scale=utility_scale, action_norm_penalty=utility_action_norm_penalty)
     else:
         raise Exception('invalid utility measure')
 

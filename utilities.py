@@ -168,9 +168,12 @@ class JensenRenyiDivergenceUtilityMeasure(UtilityMeasure):
         return utility
 
 class DiscriminatorUtilityMeasure(UtilityMeasure):
-    def __init__(self, discrimator, action_norm_penalty=0):
+    def __init__(self, discrimator, constant_test, constant_return, utility_scale, action_norm_penalty=0):
         super().__init__(action_norm_penalty=action_norm_penalty)
         self.discriminator = discrimator
+        self.constant_test = constant_test
+        self.constant_return = constant_return
+        self.utility_scale = utility_scale
 
     def compute_utility(self, states, actions, next_states, next_state_means, next_state_vars, model):
 
@@ -182,5 +185,7 @@ class DiscriminatorUtilityMeasure(UtilityMeasure):
         # which do NOT fool the discriminator
         # note that this is the opposite label used in the adversarial loss in model training
         utility = self.discriminator.utility(states, actions, predicted_next_states, 1.0)
+        # scale utility or return a constant value
+        utility = utility.new_full(utility.shape, self.constant_return) if self.constant_test else self.utility_scale * utility
 
         return utility

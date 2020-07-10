@@ -13,12 +13,14 @@ from torch.distributions import Normal
 # double check signs on all loss values and utilities
 # threshold for loss suppression in discrimator - try not using and also varying values
 # try batch /instance norms
-# make prediction model bigger
 # action norms are much smaller for discrim than max - fix this
 
 # check model is not using variance somewhere that causes problems for ensemble size 1
 # double check why novelty measures are not zero or erroring for discriminator
 # log utility from discrimator and fraction_correct for discrimator
+# what are the relative sizes of states, next states, and actions?
+# return zero only and return one only as reward from discriminator and see effect
+# scale reward to be larger
 
 class Discriminator(nn.Module):
 
