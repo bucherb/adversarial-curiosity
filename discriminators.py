@@ -139,16 +139,28 @@ class NonconvDiscriminator(Discriminator):
         self.in_features = 44
         self.main = nn.Sequential(
             # 1st layer
-            nn.Linear(self.in_features, self.in_features * 2),
+            nn.Linear(self.in_features, self.in_features * 4),
             nn.LeakyReLU(0.2, inplace=True),
             # 2nd layer
-            nn.Linear(self.in_features * 2, 64),
+            nn.Linear(self.in_features * 4, self.in_features * 4),
             nn.LeakyReLU(0.2, inplace=True),
             # 3rd layer
-            nn.Linear(64, 32),
+            nn.Linear(self.in_features * 4, self.in_features * 4),
             nn.LeakyReLU(0.2, inplace=True),
             # 4th layer
-            nn.Linear(32, 1),
+            nn.Linear(self.in_features * 4, self.in_features * 4),
+            nn.LeakyReLU(0.2, inplace=True),
+            # 5th layer
+            nn.Linear(self.in_features * 4, self.in_features * 4),
+            nn.LeakyReLU(0.2, inplace=True),
+            # 6th layer
+            nn.Linear(self.in_features * 4, self.in_features * 4),
+            nn.LeakyReLU(0.2, inplace=True),
+            # 7th layer
+            nn.Linear(self.in_features * 4, self.in_features * 4),
+            nn.LeakyReLU(0.2, inplace=True),
+            # 8th layer
+            nn.Linear(self.in_features * 4, 1),
             nn.Sigmoid()
         )
         self.to(self.device)
@@ -158,10 +170,6 @@ class NonconvDiscriminator(Discriminator):
         states = states.to(self.device)
         actions = actions.to(self.device)
         next_states = next_states.to(self.device)
-
-        # for predicted next states (not true next states) take mean over
-        # the ensemble of models
-        next_states = next_states.mean(dim=1) if len(next_states.shape) == 3 else next_states
 
         # remove empty dimensions
         states = torch.squeeze(states)

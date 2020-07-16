@@ -179,6 +179,7 @@ class DiscriminatorUtilityMeasure(UtilityMeasure):
 
         # process next state predictions
         predicted_next_states = next_state_means.to(model.device)
+        predicted_next_states = predicted_next_states.mean(dim=1)
         predicted_next_states = model.normalizer.normalize_states(predicted_next_states)
 
         # compute adversarial loss so that our utility is higher on model predictions
