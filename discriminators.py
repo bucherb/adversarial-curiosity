@@ -7,21 +7,6 @@ import pdb
 
 from torch.distributions import Normal
 
-# TODO
-# tune m_loss_weight and a_loss_weight
-# run trials to get varying random seeds
-# double check signs on all loss values and utilities
-# threshold for loss suppression in discrimator - try not using and also varying values
-# try batch /instance norms
-# action norms are much smaller for discrim than max - fix this
-
-# check model is not using variance somewhere that causes problems for ensemble size 1
-# double check why novelty measures are not zero or erroring for discriminator
-# log utility from discrimator and fraction_correct for discrimator
-# what are the relative sizes of states, next states, and actions?
-# return zero only and return one only as reward from discriminator and see effect
-# scale reward to be larger
-
 class Discriminator(nn.Module):
 
     def __init__(self, threshold, device):
@@ -83,7 +68,7 @@ class ConvDiscriminator(Discriminator):
     def __init__(self, threshold, device):
         super().__init__(threshold=threshold, device=device)
 
-        # TODO update this code to work for robot sim, currently unused
+        # TODO update this class to work for robot sim, currently unused
         # adapted from DCGAN model tutorial:
         # https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html#loss-functions-and-optimizers
         self.ndf = 44
@@ -154,12 +139,6 @@ class NonconvDiscriminator(Discriminator):
             nn.Linear(self.in_features * 4, self.in_features * 4),
             nn.LeakyReLU(0.2, inplace=True),
             # 6th layer
-            nn.Linear(self.in_features * 4, self.in_features * 4),
-            nn.LeakyReLU(0.2, inplace=True),
-            # 7th layer
-            nn.Linear(self.in_features * 4, self.in_features * 4),
-            nn.LeakyReLU(0.2, inplace=True),
-            # 8th layer
             nn.Linear(self.in_features * 4, 1),
             nn.Sigmoid()
         )

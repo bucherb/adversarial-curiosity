@@ -37,8 +37,6 @@ from torch.utils.tensorboard import SummaryWriter
 ex = Experiment()
 ex.logger = get_logger('max')
 
-# TODO don't use magic numbers for labels
-
 # noinspection PyUnusedLocal
 @ex.config
 def config():

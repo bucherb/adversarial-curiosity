@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-DOCKER_USER=daniilidislab472
+DOCKER_USER=$1
 
 IMAGE=mujoco
 TAG=gym
