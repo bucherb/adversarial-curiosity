@@ -1,6 +1,19 @@
 # Adversarial Curiosity
 
-Code for reproducing simulation experiments in Adversarial Curiosity. Built off of fork from [Model-Based Active Exploration (MAX) repository](https://github.com/nnaisense/max) from which we run baselines for comparison against our method.
+Code for reproducing simulation experiments in our work [Adversarial Curiosity](https://arxiv.org/abs/2003.06082). Our [project page](https://sites.google.com/view/action-for-better-prediction) provides data and information regarding our robotics experiments.
+
+Please cite our paper if you use our research or code in your work.
+
+```
+@misc{bucher2020adversarial,
+    title={Adversarial Curiosity},
+    author={Bernadette Bucher and Karl Schmeckpeper and Nikolai Matni and Kostas Daniilidis},
+    year={2020},
+    eprint={2003.06082},
+    archivePrefix={arXiv},
+    primaryClass={cs.RO}
+}
+```
 
 ### Software Dependencies
 
@@ -50,3 +63,9 @@ python3 main.py with max_explore exploration_mode=reactive utility_measure=pred_
 ```
 python3 main.py with random_explore env_noise_stdev=0.02
 ```
+
+# Acknowlegdements
+
+The authors are grateful for support through the Curious Minded Machines project funded by the Honda Research Institute.
+
+This repository was built off of a fork from [Model-Based Active Exploration (MAX) repository](https://github.com/nnaisense/max) from which we run baselines for comparison against our method.
