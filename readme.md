@@ -64,7 +64,7 @@ python3 main.py with max_explore exploration_mode=reactive utility_measure=pred_
 python3 main.py with random_explore env_noise_stdev=0.02
 ```
 
-# Acknowlegdements
+### Acknowlegdements
 
 The authors are grateful for support through the Curious Minded Machines project funded by the Honda Research Institute.
 
