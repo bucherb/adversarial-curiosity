@@ -64,6 +64,21 @@ python3 main.py with max_explore exploration_mode=reactive utility_measure=pred_
 python3 main.py with random_explore env_noise_stdev=0.02
 ```
 
+### Reproducing the Ant Experiments
+Execute the commands listed below to reproduce the results we report for our method and the baseline methods.
+
+You can repeat these commands with different ensemble sizes by changing the value of ENSEMBLE_SIZE.
+
+* Adversarial Curiosity
+```
+python3 main.py with max_explore log_dir='/PATH/TO/LOGS' experiment_name=EXP_NAME env_noise_stdev=0.02 utility_measure=discrim m_loss_weight=1.0 a_loss_weight=1.0 utility_scale=30 threshold=0.75 env_name=MagellanAnt-v2 n_warm_up_steps=1024 ant_coverage=True ensemble_size=ENSEMBLE_SIZE n_layers=8 n_exploration_steps=10100
+```
+
+* MAX
+```
+python3 main.py with max_explore log_dir='/PATH/TO/LOGS' experiment_name=EXP_NAME env_noise_stdev=0.02 env_name=MagellanAnt-v2 n_warm_up_steps=1024 ant_coverage=True ensemble_size=ENSEMBLE_SIZE n_layers=8 n_exploration_steps=10100
+```
+
 ### Acknowlegdements
 
 The authors are grateful for support through the Curious Minded Machines project funded by the Honda Research Institute.
