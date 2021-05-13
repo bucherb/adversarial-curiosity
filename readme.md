@@ -6,7 +6,7 @@ Please cite our paper if you use our research or code in your work.
 
 ```
 @misc{bucher2020adversarial,
-    title={Adversarial Curiosity},
+    title={An Adversarial Objective for Scalable Exploration},
     author={Bernadette Bucher and Karl Schmeckpeper and Nikolai Matni and Kostas Daniilidis},
     year={2020},
     eprint={2003.06082},
