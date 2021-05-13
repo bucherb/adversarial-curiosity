@@ -1,6 +1,6 @@
 # Adversarial Curiosity
 
-Code for reproducing simulation experiments in our work [Adversarial Curiosity](https://arxiv.org/abs/2003.06082). Our [project page](https://sites.google.com/view/action-for-better-prediction) provides data and information regarding our robotics experiments.
+Code for reproducing simulation experiments in our work [An Adversarial Objective for Scalable Exploration](https://arxiv.org/abs/2003.06082). Our [project page](https://sites.google.com/view/action-for-better-prediction) provides data and information regarding our robotics experiments.
 
 Please cite our paper if you use our research or code in your work.
 
